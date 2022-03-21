@@ -20,7 +20,7 @@ public class StudentsRestController {
     }
 
     @GetMapping("/subject/mark")
-    public List<StudentSubjectMark> getStudentSubjectMarks(String name, String subject) {
+    public List<StudentSubjectMark> getStudentSubjectMarks(@RequestParam String name, @RequestParam String subject) {
         return service.getMarksStudentSubject(name, subject);
     }
 
