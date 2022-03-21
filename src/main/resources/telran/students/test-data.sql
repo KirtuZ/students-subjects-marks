@@ -1,0 +1,13 @@
+-- insert into students (id, name)
+-- VALUES (1, 'Moshe'),
+--        (2, 'Sara'),
+--        (3, 'Vasya');
+-- insert into subjects (id, subject)
+-- VALUES (1, 'React'),
+--        (2, 'Java');
+-- insert into marks (id, mark, student_id, subject_id)
+-- VALUES (1, 90, 1, 1),
+--        (2, 90, 1, 2),
+--        (3, 80, 2, 1),
+--        (4, 80, 2, 2),
+--        (5, 40, 3, 2);
