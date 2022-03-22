@@ -6,6 +6,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.*;
 import org.springframework.data.mongodb.core.query.BasicQuery;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import telran.students.dto.*;
@@ -95,28 +96,62 @@ public class StudentsServiceImpl implements StudentsService {
 
     @Override
     public List<String> getBestStudents() {
-        return null;
+        List<AggregationOperation> operationList = getSortedStudentAvgMark(Sort.Direction.DESC);
+        double avgCollegeMark = getAvgCollegeMark();
+        MatchOperation matchOperation = Aggregation.match(Criteria.where("avgMark").gt(avgCollegeMark));
+        operationList.add(matchOperation);
+
+        return resultProcessing(operationList, false);
+    }
+
+    private double getAvgCollegeMark() {
+        UnwindOperation unwindOperation = Aggregation.unwind("marks");
+        GroupOperation groupOperation = Aggregation.group().avg("marks.mark").as("avgMark");
+        Aggregation pipeline = Aggregation.newAggregation(unwindOperation, groupOperation);
+
+        Document document = mongoTemplate.aggregate(pipeline, StudentDoc.class, Document.class)
+                .getUniqueMappedResult();
+
+        return document == null ? 0 : document.getDouble("avgMark");
     }
 
     @Override
     public List<String> getTopStudents(int nStudents) {
-        List<AggregationOperation> listOperations = getSortedStudentAvgMark();
+        List<AggregationOperation> operationList = getSortedStudentAvgMark(Sort.Direction.DESC);
         LimitOperation limit = Aggregation.limit(nStudents);
-        listOperations.add(limit);
+        operationList.add(limit);
 
-        List<Document> documentList = mongoTemplate.aggregate(
-                Aggregation.newAggregation(listOperations),
-                StudentDoc.class,
-                Document.class
-        ).getMappedResults();
-
-        return documentList.stream().map(document -> document.getString("_id") + " | " + document.getDouble("avgMark")).toList();
+        return resultProcessing(operationList, false);
     }
 
-    private List<AggregationOperation> getSortedStudentAvgMark() {
+    private List<String> resultProcessing(List<AggregationOperation> listOperations, boolean nameOnly) {
+        try {
+            List<Document> documentList = mongoTemplate.aggregate(
+                    Aggregation.newAggregation(listOperations),
+                    StudentDoc.class,
+                    Document.class
+            ).getMappedResults();
+
+            return documentList.stream().map(document -> {
+                if (nameOnly) {
+                    return document.getString("_id");
+                }
+
+                return document.getString("_id") + " | " + document.getDouble("avgMark").intValue();
+            }).toList();
+        } catch (Exception e) {
+            ArrayList<String> errorMessages = new ArrayList<>();
+            errorMessages.add(e.getMessage());
+
+            return errorMessages;
+        }
+
+    }
+
+    private List<AggregationOperation> getSortedStudentAvgMark(Sort.Direction sortDirection) {
         UnwindOperation unwindOperation = Aggregation.unwind("marks");
         GroupOperation groupOperation = Aggregation.group("name").avg("marks.mark").as("avgMark");
-        SortOperation sortOperation = Aggregation.sort(Sort.Direction.DESC, "avgMark");
+        SortOperation sortOperation = Aggregation.sort(sortDirection, "avgMark");
 
         return new ArrayList<>(Arrays.asList(unwindOperation, groupOperation, sortOperation));
     }
@@ -128,7 +163,21 @@ public class StudentsServiceImpl implements StudentsService {
 
     @Override
     public List<StudentSubjectMark> getMarksOfWorstStudents(int nStudents) {
-        return null;
+        List<AggregationOperation> operationList = getSortedStudentAvgMark(Sort.Direction.ASC);
+        LimitOperation limit = Aggregation.limit(nStudents);
+        operationList.add(limit);
+        List<String> names = resultProcessing(operationList, true);
+
+
+        List<StudentDoc> studentDocs = studentsRepository.findByNameIn(names);
+
+        if (studentDocs == null) {
+            return Collections.emptyList();
+        }
+
+        return studentDocs.stream()
+                .flatMap(sd -> sd.getMarks().stream().map(sm -> getStudentSubjectMark(sm, sd.getName())))
+                .toList();
     }
 
     @Override
