@@ -158,7 +158,24 @@ public class StudentsServiceImpl implements StudentsService {
 
     @Override
     public List<Student> getTopBestStudentsSubject(int nStudents, String subject) {
-        return null;
+        UnwindOperation unwindOperation = Aggregation.unwind("marks");
+        MatchOperation matchOperation = Aggregation.match(Criteria.where("marks.subject").is(subject));
+        GroupOperation groupOperation = Aggregation.group("id", "name").avg("marks.mark").as("avgMark");
+        SortOperation sortOperation = Aggregation.sort(Sort.Direction.DESC, "avgMark");
+        LimitOperation limit = Aggregation.limit(nStudents);
+
+        List<AggregationOperation> pipeline = new ArrayList<>(
+                Arrays.asList(unwindOperation, matchOperation, groupOperation, sortOperation, limit)
+        );
+
+        List<Document> mappedResults = mongoTemplate
+                .aggregate(Aggregation.newAggregation(pipeline), StudentDoc.class, Document.class)
+                .getMappedResults();
+
+        return mappedResults.stream().map(doc -> {
+            Document studentDoc = (Document) doc.get("_id");
+            return new Student(studentDoc.getInteger("id"), studentDoc.getString("name"));
+        }).toList();
     }
 
     @Override
