@@ -10,11 +10,11 @@
     </parent>
     <groupId>telran</groupId>
     <artifactId>telran-spring-data</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
     <name>students-subjects-marks</name>
     <description>students-subjects-marks</description>
     <properties>
-        <java.version>17</java.version>
+        <java.version>11</java.version>
     </properties>
     <dependencies>
         <dependency>
