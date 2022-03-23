@@ -1,6 +1,5 @@
 package telran.students.service.impl;
 
-import com.mongodb.internal.operation.AggregateOperation;
 import org.bson.Document;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -18,6 +17,8 @@ import java.util.*;
 
 @Service
 public class StudentsServiceImpl implements StudentsService {
+    private static final int MAX_MARK = 100;
+    private static final int MIN_MARK = 60;
     StudentsRepository studentsRepository;
     SubjectRepository subjectRepository;
     MongoTemplate mongoTemplate;
@@ -32,12 +33,12 @@ public class StudentsServiceImpl implements StudentsService {
 
     @Override
     public void addStudent(Student student) {
-        studentsRepository.insert(new StudentDoc(student.id, student.name));
+        studentsRepository.save(new StudentDoc(student.id, student.name));
     }
 
     @Override
     public void addSubject(Subject subject) {
-        subjectRepository.insert(new SubjectDoc(subject.id, subject.subject));
+        subjectRepository.save(new SubjectDoc(subject.id, subject.subject));
     }
 
     @Override
@@ -162,20 +163,22 @@ public class StudentsServiceImpl implements StudentsService {
         MatchOperation matchOperation = Aggregation.match(Criteria.where("marks.subject").is(subject));
         GroupOperation groupOperation = Aggregation.group("id", "name").avg("marks.mark").as("avgMark");
         SortOperation sortOperation = Aggregation.sort(Sort.Direction.DESC, "avgMark");
-        LimitOperation limit = Aggregation.limit(nStudents);
+        LimitOperation limitOperation = Aggregation.limit(nStudents);
 
         List<AggregationOperation> pipeline = new ArrayList<>(
-                Arrays.asList(unwindOperation, matchOperation, groupOperation, sortOperation, limit)
+                Arrays.asList(unwindOperation, matchOperation, groupOperation, sortOperation, limitOperation)
         );
 
         List<Document> mappedResults = mongoTemplate
                 .aggregate(Aggregation.newAggregation(pipeline), StudentDoc.class, Document.class)
                 .getMappedResults();
 
-        return mappedResults.stream().map(doc -> {
-            Document studentDoc = (Document) doc.get("_id");
-            return new Student(studentDoc.getInteger("id"), studentDoc.getString("name"));
-        }).toList();
+        return mappedResults.stream().map(this::getStudent).toList();
+    }
+
+    private Student getStudent(Document doc) {
+        Document studentDoc = (Document) doc.get("_id");
+        return new Student(studentDoc.getInteger("id"), studentDoc.getString("name"));
     }
 
     @Override
@@ -199,7 +202,47 @@ public class StudentsServiceImpl implements StudentsService {
 
     @Override
     public List<IntervalMarks> marksDistribution(int interval) {
-        return null;
+        int nIntervals = ( MAX_MARK - MIN_MARK) / interval;
+        UnwindOperation unwindOperation = Aggregation.unwind("marks");
+        BucketAutoOperation bucketOperation = Aggregation.bucketAuto("marks.mark", nIntervals);
+        List<Document> bucketDocs = mongoTemplate.aggregate(Aggregation.newAggregation(unwindOperation,
+                        bucketOperation), StudentDoc.class, Document.class).getMappedResults();
+
+        return bucketDocs.stream().map(this::getIntervalMarks).toList();
+    }
+
+    private IntervalMarks getIntervalMarks(Document doc) {
+        Document interval = (Document) doc.get("_id");
+        return new IntervalMarks() {
+            public int getOccurrences() {
+                return doc.getInteger("count");
+            }
+            public int getMin() {
+                return interval.getInteger("min");
+            }
+            public int getMax() {
+                return interval.getInteger("max");
+            }
+
+        };
+    }
+
+    @Override
+    @Transactional
+    public List<Student> removeStudents(double avgMark, long nMarks) {
+        UnwindOperation unwindOperation = Aggregation.unwind("marks");
+
+        GroupOperation groupOperation = Aggregation.group("id", "name")
+                .avg("marks.mark").as("avgMark").count().as("count");
+
+        MatchOperation matchOperation = Aggregation.match(Criteria.where("avgMark").lt(avgMark).and("count").lt(nMarks));
+        List<Document> documents = mongoTemplate.aggregate(
+                Aggregation.newAggregation(unwindOperation, groupOperation, matchOperation), StudentDoc.class,
+                Document.class).getMappedResults();
+        List<Student> studentsForRemoving = documents.stream().map(this::getStudent).toList();
+        studentsRepository.deleteAllById(studentsForRemoving.stream().map(s -> s.id).toList());
+
+        return studentsForRemoving;
     }
 
     @Override
@@ -221,10 +264,5 @@ public class StudentsServiceImpl implements StudentsService {
             errorMessage.add(e.getMessage());
             return errorMessage;
         }
-    }
-
-    @Override
-    public List<Student> removeStudents(double avgMark, long nMarks) {
-        return null;
     }
 }

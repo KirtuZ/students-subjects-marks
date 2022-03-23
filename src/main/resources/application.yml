@@ -1,4 +1,5 @@
 spring:
   data:
     mongodb:
-      uri: mongodb://localhost:27017/college3
+      uri: mongodb+srv://root:${MONGO_PASSWORD}@cluster0.qpmte.mongodb.net/college?retryWrites=true&w=majority
+#      uri: mongodb://localhost:27017/college3
